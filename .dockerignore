@@ -9,3 +9,7 @@ __pycache__/
 *.pyc
 .env
 .env.*
+gateway.env
+setup-client.sh
+.debug-captures/
+default_antigravity_tools.json
