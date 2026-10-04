@@ -161,9 +161,51 @@ def _apply_antigravity_patches() -> None:
             role = content.get("role", "user")
             parts: Sequence[Any] = content.get("parts", [])
 
+            # Extract any tool response parts regardless of content role.
+            # Antigravity CLI sends functionResponse with role: "model".
+            tool_messages: list[ChatCompletionToolMessage] = []
+            non_tool_parts: list[Any] = []
+
+            for part in parts:
+                if isinstance(part, dict) and ("functionResponse" in part or "function_response" in part):
+                    func_response = part.get("functionResponse") or part.get("function_response") or {}
+                    fn_name = func_response.get("name", "unknown")
+                    explicit_id = func_response.get("id")
+                    if explicit_id:
+                        call_id = str(explicit_id)
+                    elif pending_call_ids[fn_name]:
+                        call_id = pending_call_ids[fn_name].popleft()
+                    else:
+                        call_counter += 1
+                        call_id = f"call_{fn_name}_{call_counter}"
+
+                    resp_payload = func_response.get("response", {})
+                    tool_messages.append(
+                        ChatCompletionToolMessage(
+                            role="tool",
+                            tool_call_id=call_id,
+                            content=(
+                                resp_payload
+                                if isinstance(resp_payload, str)
+                                else json.dumps(resp_payload)
+                            ),
+                        )
+                    )
+                else:
+                    non_tool_parts.append(part)
+
+            # Tool responses must immediately follow the assistant tool_calls turn
+            if tool_messages:
+                messages.extend(tool_messages)
+
+            # If there were only tool response parts, this turn is fully converted
+            if not non_tool_parts:
+                continue
+
+            parts = non_tool_parts
+
             if role == "user":
                 content_parts: list[ChatCompletionTextObject | ChatCompletionImageObject] = []
-                tool_messages: list[ChatCompletionToolMessage] = []
 
                 for part in parts:
                     if isinstance(part, dict):
@@ -188,37 +230,10 @@ def _apply_antigravity_patches() -> None:
                                     },
                                 )
                             )
-                        elif "functionResponse" in part:
-                            func_response = part["functionResponse"]
-                            fn_name = func_response.get("name", "unknown")
-                            explicit_id = func_response.get("id")
-                            if explicit_id:
-                                call_id = str(explicit_id)
-                            elif pending_call_ids[fn_name]:
-                                call_id = pending_call_ids[fn_name].popleft()
-                            else:
-                                call_counter += 1
-                                call_id = f"call_{fn_name}_{call_counter}"
-
-                            resp_payload = func_response.get("response", {})
-                            tool_messages.append(
-                                ChatCompletionToolMessage(
-                                    role="tool",
-                                    tool_call_id=call_id,
-                                    content=(
-                                        resp_payload
-                                        if isinstance(resp_payload, str)
-                                        else json.dumps(resp_payload)
-                                    ),
-                                )
-                            )
                     elif isinstance(part, str):
                         content_parts.append(
                             cast(ChatCompletionTextObject, {"type": "text", "text": part})
                         )
-
-                # Tool responses must immediately follow the assistant tool_calls turn
-                messages.extend(tool_messages)
 
                 if content_parts:
                     if (
@@ -245,8 +260,8 @@ def _apply_antigravity_patches() -> None:
                             continue
                         if "text" in part and part["text"]:
                             combined_text += part["text"]
-                        elif "functionCall" in part:
-                            func_call = part["functionCall"]
+                        elif "functionCall" in part or "function_call" in part:
+                            func_call = part.get("functionCall") or part.get("function_call") or {}
                             fn_name = func_call.get("name", "unknown")
                             explicit_id = func_call.get("id")
                             if explicit_id:
@@ -277,11 +292,11 @@ def _apply_antigravity_patches() -> None:
                             tool_calls=tool_calls,
                         )
                     )
-                else:
+                elif combined_text:
                     messages.append(
                         ChatCompletionAssistantMessage(
                             role="assistant",
-                            content=combined_text if combined_text else "",
+                            content=combined_text,
                         )
                     )
 
