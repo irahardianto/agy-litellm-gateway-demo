@@ -22,19 +22,19 @@
 
 model_list:
   # ---------------------------------------------------------------------------
-  # 1. Vertex AI / GEAP — Gemini Models (Global Endpoint)
-  #    Auto-enabled when `aiplatform.googleapis.com` is enabled by deploy.sh.
-  #    No Model Garden activation step is required for Gemini models.
+  # 1. Antigravity Tool-Enabled Gateway Routes
+  #    Mapped to Anthropic Claude on Vertex AI / GEAP so Antigravity CLI (`agy`)
+  #    sends native tools and receives executed tool results seamlessly.
   # ---------------------------------------------------------------------------
   - model_name: gemini-3.8-flash
     litellm_params:
-      model: vertex_ai/gemini-3.8-flash
+      model: vertex_ai/claude-sonnet-5
       vertex_project: os.environ/GCP_PROJECT_ID
       vertex_location: global
 
   - model_name: gemini-3.7-flash
     litellm_params:
-      model: vertex_ai/gemini-3.7-flash
+      model: vertex_ai/claude-opus-5-5
       vertex_project: os.environ/GCP_PROJECT_ID
       vertex_location: global
 
@@ -193,7 +193,10 @@ router_settings:
   # Only include models here that are enabled in your project.
   fallbacks:
     - gemini-3.8-flash:
-        - gemini-3.7-flash
+        - claude-sonnet-5
+    - gemini-3.7-flash:
+        - claude-opus-5-5
+        - claude-opus-5
     - gemini-3.1-pro-preview:
         - gemini-3.8-flash
     - claude-opus-5-5:

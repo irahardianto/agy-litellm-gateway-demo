@@ -12,34 +12,22 @@
       "filter": [
         "gemini-3.8-flash",
         "gemini-3.7-flash",
-        "gemini-3.1-pro-preview",
-        "claude-sonnet-5",
-        "claude-opus-5"
+        "gemini-3.1-pro-preview"
       ],
       "list": [
         {
           "modelId": "gemini-3.8-flash",
-          "displayName": "Gemini 3.8 Flash",
+          "displayName": "Claude Sonnet 5",
           "supportsThinking": true
         },
         {
           "modelId": "gemini-3.7-flash",
-          "displayName": "Gemini 3.7 Flash",
+          "displayName": "Claude Opus 5.5",
           "supportsThinking": true
         },
         {
           "modelId": "gemini-3.1-pro-preview",
           "displayName": "Gemini 3.1 Pro",
-          "supportsThinking": true
-        },
-        {
-          "modelId": "claude-sonnet-5",
-          "displayName": "Claude Sonnet 5",
-          "supportsThinking": true
-        },
-        {
-          "modelId": "claude-opus-5",
-          "displayName": "Claude Opus 5",
           "supportsThinking": true
         }
       ]
@@ -50,34 +38,22 @@
     "filter": [
       "gemini-3.8-flash",
       "gemini-3.7-flash",
-      "gemini-3.1-pro-preview",
-      "claude-sonnet-5",
-      "claude-opus-5"
+      "gemini-3.1-pro-preview"
     ],
     "list": [
       {
         "modelId": "gemini-3.8-flash",
-        "displayName": "Gemini 3.8 Flash",
+        "displayName": "Claude Sonnet 5",
         "supportsThinking": true
       },
       {
         "modelId": "gemini-3.7-flash",
-        "displayName": "Gemini 3.7 Flash",
+        "displayName": "Claude Opus 5.5",
         "supportsThinking": true
       },
       {
         "modelId": "gemini-3.1-pro-preview",
         "displayName": "Gemini 3.1 Pro",
-        "supportsThinking": true
-      },
-      {
-        "modelId": "claude-sonnet-5",
-        "displayName": "Claude Sonnet 5",
-        "supportsThinking": true
-      },
-      {
-        "modelId": "claude-opus-5",
-        "displayName": "Claude Opus 5",
         "supportsThinking": true
       }
     ]
