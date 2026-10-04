@@ -31,48 +31,45 @@ Models are served from **Gemini Enterprise Agent Platform (formerly Vertex AI)**
 
 Takes ~3–5 minutes and is safe to re-run. It deploys the gateway, checks which models in [`config.yaml`](config.yaml) are enabled in your project, and writes two files for your machine: **`admin_settings.json`** and **`gateway.env`**. Each file contains only the models that actually work. See [what it does step by step](#what-deploysh-does).
 
-### 2. Connect `agy`
+### 2. Connect `agy` (one time per machine)
 
-**Linux**
+**Linux / macOS**: run as your normal user (**not** with `sudo`; the script asks for `sudo` itself for the one system file):
 ```bash
-sudo install -d -m 755 /etc/antigravity
-sudo install -m 644 admin_settings.json /etc/antigravity/admin_settings.json
-source gateway.env
-
-# Optional: load gateway.env in every new terminal
-sudo install -m 644 gateway.env /etc/profile.d/antigravity-gateway.sh
+./setup-client.sh
 ```
 
-**macOS**
-```bash
-sudo install -d -m 755 "/Library/Application Support/Antigravity"
-sudo install -m 644 admin_settings.json "/Library/Application Support/Antigravity/admin_settings.json"
-source gateway.env
-```
+That's it. Open any new terminal (bash, zsh, tmux, IDE terminals) and `agy models` already shows your gateway models. There's nothing to `source`, ever. Re-run it only when the model list changes (see [Managing Models](#managing-models)).
 
-**Windows** (PowerShell as Administrator)
+What it does, so there are no surprises:
+- Installs `admin_settings.json` to `/etc/antigravity/` (macOS: `/Library/Application Support/Antigravity/`) with mode `644`. This is the only step that needs `sudo`.
+- Writes `~/.config/antigravity/gateway-models.sh` with `AGY_LLM_GATEWAY_MODELS`, the one variable `agy` needs to list partner models like `claude-opus-5`. It contains **model IDs only, no API key**. The URL, key and headers come from `admin_settings.json`.
+- Adds one clearly marked block to `~/.zshenv`, `~/.bashrc` (and `fish`/`systemd --user` if present) that loads that file. Every file it edits is backed up first (`<file>.agy-backup-<timestamp>`), and re-running changes nothing if nothing differs.
+- Checks that a brand-new shell really sees the models.
+
+Useful options: `--dry-run` (preview, write nothing), `--status` (diagnose), `--uninstall` (remove everything it added; the system file is left for you to remove). Setting up a teammate's machine? Send them `admin_settings.json`, `gateway.env` and `setup-client.sh` in one folder and have them run it.
+
+**Windows** (PowerShell as Administrator):
 ```powershell
 New-Item -ItemType Directory -Force -Path "$env:ProgramData\Antigravity"
 Copy-Item admin_settings.json "$env:ProgramData\Antigravity\admin_settings.json"
 
-# Load gateway.env into this session and persist it for new terminals
-Get-Content gateway.env | ForEach-Object {
-  if ($_ -match '^export (\w+)="(.*)"$') {
-    Set-Item -Path "Env:$($Matches[1])" -Value $Matches[2]
-    [Environment]::SetEnvironmentVariable($Matches[1], $Matches[2], 'User')
-  }
-}
+# Persist only the (non-secret) model list for your user; applies to every new terminal
+$models = (Select-String -Path gateway.env -Pattern '^export AGY_LLM_GATEWAY_MODELS="(.*)"$').Matches[0].Groups[1].Value
+[Environment]::SetEnvironmentVariable('AGY_LLM_GATEWAY_MODELS', $models, 'User')
 ```
+Open a new terminal afterwards. Environment variables set this way are only picked up by programs started after the change.
 
 > [!IMPORTANT]
-> **You need both commands.** `admin_settings.json` points `agy` at the gateway (URL + API key) and must be installed with mode `644`. With plain `sudo cp` it stays root-only, and `agy` silently falls back to the consumer model list. `gateway.env` exports `AGY_LLM_GATEWAY_MODELS`, which is how `agy` discovers partner models like `claude-opus-5`.
+> **Both parts matter, and `setup-client.sh` handles both.** `admin_settings.json` points `agy` at the gateway (URL + API key) and must be readable by everyone (mode `644`). If it's root-only, `agy` silently falls back to the consumer model list. `AGY_LLM_GATEWAY_MODELS` is how `agy` discovers partner models like `claude-opus-5`. Without it you still talk to the gateway, but `agy models` shows only the built-in Gemini models, and a saved default like `claude-opus-5-5` is quietly swapped for a Gemini model.
+>
+> **Don't put the API key in a world-readable shell file** (for example `/etc/profile.d/`). It isn't needed there.
 
 ### 3. Verify
 
 ```bash
 agy models                                                    # should list ONLY your active gateway models
-agy --model gemini-3.8-flash-low -p "Explain binary search"   # Gemini 3.x needs -low / -medium / -high (or --effort)
-agy --model claude-opus-5 -p "Explain binary search"          # Claude: plain model ID, if enabled
+agy --model gemini-3.8-flash-low -p "Explain binary search"   # Claude Sonnet 5 (via gemini-3.8-flash alias)
+agy --model gemini-3.7-flash-low -p "Explain binary search"   # Claude Opus 5.5 (via gemini-3.7-flash alias)
 ```
 
 `deploy.sh` prints the exact test commands for the models that are active in your project.
@@ -89,7 +86,7 @@ A model shows up in `agy models` only if it passes three checks, in this order:
 | :--- | :--- | :--- | :--- |
 | **1. Model Garden** | GCP Console | Whether your project is *allowed* to call a partner model (Claude). Gemini is always allowed. | Click **Enable** on the model card |
 | **2. `config.yaml`** | This repo, **baked into the container** | Which models the gateway *knows about*, plus aliases and fallbacks | Full `./deploy.sh` (~3–5 min) |
-| **3. `admin_settings.json` + `gateway.env`** | Each developer's machine | Which models `agy` *shows*. Generated: models from layer 2 that pass layer 1 | Re-install both files |
+| **3. `admin_settings.json` + `gateway.env`** | Each developer's machine | Which models `agy` *shows*. Generated: models from layer 2 that pass layer 1 | Re-run `./setup-client.sh` |
 
 > [!IMPORTANT]
 > `deploy.sh` only checks models **listed in `config.yaml`**. Model Garden has no "list everything I enabled" API, so a model you enable there that isn't in `config.yaml` is **never discovered**. Add it to `config.yaml` first.
@@ -103,7 +100,7 @@ flowchart LR
     A["Enable in Model Garden<br/>(Claude only)"] --> B{"Model ID already in<br/>config.yaml?"}
     B -- Yes --> C["./deploy.sh ... --sync-models<br/>~5s, no rebuild"]
     B -- No --> D["Add to config.yaml, then<br/>./deploy.sh ...<br/>~3-5 min"]
-    C --> E["Re-install admin_settings.json<br/>+ source gateway.env"]
+    C --> E["Re-run ./setup-client.sh<br/>on each machine"]
     D --> E
 ```
 
@@ -112,11 +109,11 @@ flowchart LR
 | **Use a model that's already in `config.yaml`** *(e.g. `claude-opus-5-5`, `claude-fable-5`)* | Enable it in [Model Garden](https://console.cloud.google.com/vertex-ai/model-garden) | `./deploy.sh --project P --service S --sync-models` | No, ~5s |
 | **Add a model that's not in `config.yaml`** *(new release, or one of the commented-out ones)* | Enable it in Model Garden (Claude), then add it under `model_list` in `config.yaml` ([example](#adding-a-model)) | `./deploy.sh --project P --service S` | Yes, ~3–5 min |
 | **Remove a model for everyone** | Delete its block from `model_list` (and from `fallbacks`) | `./deploy.sh --project P --service S` | Yes, ~3–5 min |
-| **Hide a model on my machine only** | Remove it from `AGY_LLM_GATEWAY_MODELS` in `gateway.env` | `source gateway.env` | No |
+| **Hide a model on my machine only** | Remove it from `AGY_LLM_GATEWAY_MODELS` in `gateway.env` | `./setup-client.sh` | No |
 
 After any of the first three rows, finish on each machine with:
 ```bash
-sudo install -m 644 admin_settings.json /etc/antigravity/admin_settings.json && source gateway.env
+./setup-client.sh
 ```
 
 ### Reading the model check output
@@ -150,6 +147,17 @@ Minor side effects, all harmless:
 | **Anthropic Claude** *(Vertex AI / GEAP partner)* | `claude-sonnet-5`, `claude-opus-5`, `claude-opus-5-5`, `claude-fable-5`. Commented out: `claude-sonnet-4-6`, `claude-opus-4-6`, `claude-haiku-4-5@20251001` | **Yes, once per project.** |
 | **External providers** *(Anthropic API, OpenAI, AWS Bedrock, Azure OpenAI, ...)* | Commented-out examples in `config.yaml` section 4 | **N/A, and not part of this repo's one-command flow.** LiteLLM supports [100+ providers](https://docs.litellm.ai/docs/providers), so they can sit behind the same gateway and `agy` setup. You bring the provider API key. Traffic leaves GCP and is billed by that provider. |
 
+> [!NOTE]
+> **Why Antigravity model IDs use `gemini-*` aliases:**  
+> Antigravity CLI (`agy` v1.2.16) only sends native tools (`functionDeclarations`) for model IDs in its built-in catalog (`gemini-3.8-flash`, `gemini-3.7-flash`, `gemini-3.1-pro-preview`). Any custom partner model ID (such as `claude-sonnet-5` or `claude-opus-5-5`) causes `agy` to assign `ToolFormatterType = 4` (`TOOL_FORMATTER_TYPE_CHAT_TRANSCRIPT`) and strip all native tool declarations (`tools: null`). Without native tool schemas, Claude hallucinates plain text tool calls (e.g. `ls_dir`) that never execute.
+> 
+> To enable full native tool calling in `agy`, the gateway aliases built-in Gemini model IDs to Claude on the backend:
+> - **`gemini-3.8-flash`** (displayed as **`Claude Sonnet 5`**) → routes to `vertex_ai/claude-sonnet-5`
+> - **`gemini-3.7-flash`** (displayed as **`Claude Opus 5.5`**) → routes to `vertex_ai/claude-opus-5-5`
+> - **`gemini-3.1-pro-preview`** (displayed as **`Gemini 3.1 Pro`**) → routes to `vertex_ai/gemini-3.1-pro-preview`
+> 
+> Direct `claude-*` routes remain configured in `config.yaml` for non-agy clients (curl, OpenAI SDK), but are not advertised to `agy` to prevent tool execution failures.
+
 ### Adding a model
 
 1. *(Claude)* Enable it in [Model Garden](https://console.cloud.google.com/vertex-ai/model-garden) and copy the **Model ID** from the card.
@@ -168,10 +176,10 @@ Minor side effects, all harmless:
        model: openai/gpt-4o
        api_key: os.environ/OPENAI_API_KEY
    ```
-3. Run a full deploy, then re-install the client files on each machine:
+3. Run a full deploy, then re-run the client setup on each machine:
    ```bash
    ./deploy.sh --project YOUR_GCP_PROJECT_ID --service YOUR_SERVICE_NAME
-   sudo install -m 644 admin_settings.json /etc/antigravity/admin_settings.json && source gateway.env
+   ./setup-client.sh
    ```
 
 > [!NOTE]
@@ -255,7 +263,7 @@ This stores the new key, rolls out a new revision, **disables the old key**, and
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
 │                 Developer Workstation (Antigravity CLI)                 │
-│  Reads /etc/antigravity/admin_settings.json + gateway.env               │
+│  Reads /etc/antigravity/admin_settings.json + AGY_LLM_GATEWAY_MODELS    │
 └───────────────────────────────────┬─────────────────────────────────────┘
                                     │ HTTPS POST /v1beta/models/{model}:streamGenerateContent?alt=sse
                                     │ Header: Authorization: Bearer <gateway API key>
@@ -336,14 +344,14 @@ Claude checks show `○ SKIP` instead of failing when that model isn't enabled i
 
 | Symptom | Cause | Fix |
 | :--- | :--- | :--- |
-| **`agy models` shows consumer models (`claude-sonnet-4-6`, `gpt-oss-120b-medium`) instead of yours** | `admin_settings.json` was installed root-only (`0600`), or `gateway.env` wasn't sourced in this shell | `sudo install -m 644 admin_settings.json /etc/antigravity/admin_settings.json && source gateway.env` |
-| **Enabled a model in Model Garden, but it's missing after `--sync-models`** | It isn't in the **deployed** `config.yaml`. Either it was never added, or it was added locally after the last full deploy (`✗ NOT DEPLOYED`). | Add the exact Model ID to `config.yaml`, run a full `./deploy.sh`, then re-install the client files |
+| **`agy models` shows only the built-in Gemini models instead of yours** (or your saved default like `claude-opus-5-5` is silently replaced by a Gemini model) | Client setup was never run on this machine, `admin_settings.json` is root-only (`0600`), or `AGY_LLM_GATEWAY_MODELS` isn't set in this terminal (e.g. it was opened before setup ran) | Run `./setup-client.sh --status` to see which part is missing, then `./setup-client.sh`. Open a new terminal afterwards. |
+| **Enabled a model in Model Garden, but it's missing after `--sync-models`** | It isn't in the **deployed** `config.yaml`. Either it was never added, or it was added locally after the last full deploy (`✗ NOT DEPLOYED`). | Add the exact Model ID to `config.yaml`, run a full `./deploy.sh`, then re-run `./setup-client.sh` |
 | **A model stays `○ INACTIVE` even though it's enabled** | Either `HTTP 429` (enabled in Model Garden, but the project has `0` quota for that base model—common for gated preview models like `claude-fable-5`) or `HTTP 404` (`model_name` doesn't match the Model Garden card ID) | For `429`: request quota for `online_prediction_requests_per_base_model` in **IAM & Admin → Quotas**, then `--sync-models`. For `404`: fix the ID in `config.yaml` and run a full deploy. |
-| **`model X is not recognized as a known model or custom model in settings`** | `gateway.env` isn't sourced, or the model was inactive when `gateway.env` was generated | `source gateway.env`. If the model is missing from `AGY_LLM_GATEWAY_MODELS`, enable it and run `--sync-models`. |
+| **`model X is not recognized as a known model or custom model in settings`** | `AGY_LLM_GATEWAY_MODELS` isn't set in this terminal, or the model was inactive when `gateway.env` was generated | `./setup-client.sh --status`. If the model is missing from `AGY_LLM_GATEWAY_MODELS`, enable it, run `--sync-models`, then `./setup-client.sh`. |
 | **`--model gemini-3.8-flash requires --effort`** | Gemini 3.x in `agy` needs a thinking tier | Use `gemini-3.8-flash-low` / `-medium` / `-high`, or add `--effort low`. Claude models don't need it. |
 | **Claude returns `404` / `403`** | Model not enabled in your project's Model Garden | Enable it on the [Model Garden](https://console.cloud.google.com/vertex-ai/model-garden) card |
-| **`401` "No api key passed in"** | Client isn't sending `Authorization: Bearer` | Check `gateway.apiKey` in `/etc/antigravity/admin_settings.json`, and `source gateway.env` |
-| **`400` "No connected db"** | The client's API key doesn't match the gateway key (e.g. after a rotation) | `./deploy.sh --project P --service S --sync-models`, then re-install the client files |
+| **`401` "No api key passed in"** | Client isn't sending `Authorization: Bearer` | Check `gateway.apiKey` in `/etc/antigravity/admin_settings.json` (re-run `./setup-client.sh` to refresh it) |
+| **`400` "No connected db"** | The client's API key doesn't match the gateway key (e.g. after a rotation) | `./deploy.sh --project P --service S --sync-models`, then re-run `./setup-client.sh` |
 | **`403 Forbidden` HTML page from Google** | An org policy blocks public Cloud Run services | Re-run `./deploy.sh`; it applies `--no-invoker-iam-check` automatically |
 | **First request after idle is slow** | Cloud Run cold start | `./deploy.sh --project P --min-instances 1` |
 | **`429` / quota errors** | Vertex AI / GEAP quota exhausted | Fallbacks in `config.yaml` kick in automatically. Request more quota if it keeps happening. |
